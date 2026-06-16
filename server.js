@@ -42,7 +42,7 @@ const __dirname = path.dirname(__filename);
 const PORT = parseInt(process.env.PORT || '9600', 10);
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const CLEANUP_INTERVAL_MS = 30_000;
-const FEED_RATE_LIMIT_MS = 5_000;
+const FEED_RATE_LIMIT_MS = 500; // Allow 2 fps max per agent
 const MAX_AGENTS = 100;
 const MAX_DASHBOARDS = 10;
 const DASHBOARD_HTML_PATH = path.resolve(__dirname, 'omniwatch-dashboard.html');
@@ -319,9 +319,14 @@ httpServer.on('upgrade', (req, socket, head) => {
  */
 function broadcastToDashboards(payload) {
   const raw = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const isLargeUpdate = payload && payload.type === 'agent_update' && payload.screenshot;
   for (const d of dashboards) {
     try {
       if (d.ws.readyState === WebSocket.OPEN) {
+        // Prevent massive lag: if dashboard internet is slow, drop the frame instead of queueing it for 5 minutes
+        if (isLargeUpdate && d.ws.bufferedAmount > 1000000) {
+          continue; 
+        }
         d.ws.send(raw);
       }
     } catch (err) {
